@@ -1,0 +1,78 @@
+# WA0O build of the privacyIDEA Authenticator -> signed .ipa -> (optionally) TestFlight.
+# Why this fork exists: the store app is compiled against NetKnights' Firebase project, so real push notifications
+# need either their paid SLA or our own build with our own Firebase (Joe 09/27/2026 chose our own build).
+# Signing material = the team's iOS Distribution cert (same one HamDeck uses) + the "WA0O Authenticator App Store"
+# profile for com.wa0o.piauthenticator; both live in repo secrets, never in git.
+#   gh workflow run wa0o-testflight.yml -R jwussler/pi-authenticator-wa0o                 # build + verify only
+#   gh workflow run wa0o-testflight.yml -R jwussler/pi-authenticator-wa0o -f upload=true  # ... and send to TestFlight
+name: WA0O TestFlight
+on:
+  workflow_dispatch:
+    inputs:
+      upload:
+        description: "Upload the signed .ipa to TestFlight"
+        type: boolean
+        default: false
+jobs:
+  ios:
+    runs-on: macos-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.6.0"          # same as upstream's own iOS CI (flutter_build.yml)
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          flutter-version: "3.44.0"        # same as upstream
+      - name: Signing keychain (throwaway, unlocked)
+        env:
+          P12: ${{ secrets.APPLE_IOS_DIST_P12 }}
+          P12PW: ${{ secrets.APPLE_IOS_DIST_P12_PASSWORD }}
+          PROFILE: ${{ secrets.APPLE_IOS_PROFILE }}
+        run: |
+          for v in P12 P12PW PROFILE; do [ -n "${!v}" ] || { echo "missing secret $v"; exit 1; }; done
+          KC="$RUNNER_TEMP/wa0o.keychain-db"; KCPW="$(uuidgen)"
+          security create-keychain -p "$KCPW" "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p "$KCPW" "$KC"
+          echo "$P12" | base64 -d > "$RUNNER_TEMP/dist.p12"
+          security import "$RUNNER_TEMP/dist.p12" -k "$KC" -P "$P12PW" -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KCPW" "$KC" >/dev/null
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$KC" | grep -E "iPhone Distribution|iOS Distribution|Apple Distribution" || { echo "no distribution identity in keychain"; exit 1; }
+          mkdir -p "$HOME/Library/MobileDevice/Provisioning Profiles"
+          echo "$PROFILE" | base64 -d > "$HOME/Library/MobileDevice/Provisioning Profiles/wa0o-piauth-appstore.mobileprovision"
+          rm -f "$RUNNER_TEMP/dist.p12"
+      - run: flutter pub get
+      - run: flutter gen-l10n
+      - name: Build signed .ipa
+        # Build numbers must always rise and start above upstream's 408002.
+        run: |
+          flutter build ipa -t lib/mains/main_netknights.dart --flavor netknights --release \
+            --export-options-plist=ios/ExportOptions-wa0o.plist --build-number=$((409000 + ${{ github.run_number }}))
+          ls -la build/ios/ipa/
+      - name: Verify the signed bundle (what Apple will read)
+        run: |
+          IPA=$(ls build/ios/ipa/*.ipa | head -1); rm -rf "$RUNNER_TEMP/chk"; mkdir "$RUNNER_TEMP/chk"; unzip -q "$IPA" -d "$RUNNER_TEMP/chk"
+          APP=$(ls -d "$RUNNER_TEMP"/chk/Payload/*.app)
+          ID=$(/usr/libexec/PlistBuddy -c "Print CFBundleIdentifier" "$APP/Info.plist"); echo "bundle id: $ID"; [ "$ID" = com.wa0o.piauthenticator ]
+          codesign -dvvv "$APP" 2>&1 | grep -E 'Authority=|TeamIdentifier='
+          codesign -d --entitlements :- "$APP" 2>/dev/null | grep -A1 aps-environment | tee /dev/stderr | grep -q production
+          security cms -D -i "$APP/embedded.mobileprovision" | grep -A1 '<key>Name</key>' | tail -1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wa0o-piauth-ipa
+          path: build/ios/ipa/*.ipa
+          retention-days: 14
+      - name: Upload to TestFlight
+        if: inputs.upload
+        env:
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+        run: |
+          mkdir -p ~/.appstoreconnect/private_keys
+          echo "$ASC_KEY_P8" > ~/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8
+          xcrun altool --upload-app --type ios -f "$(ls build/ios/ipa/*.ipa | head -1)" --apiKey "$ASC_KEY_ID" --apiIssuer "$ASC_ISSUER_ID"
