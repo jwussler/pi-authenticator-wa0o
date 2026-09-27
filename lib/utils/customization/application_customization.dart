@@ -39,10 +39,11 @@ class ApplicationCustomization {
 
   static const _defaultAppName = 'privacyIDEA Authenticator';
   static const _defaultWebsiteLink = 'https://netknights.it/';
-  static const _defaultCrashRecipient = 'app-crash@netknights.it';
+  // WA0O 09/27/2026: logs/feedback from our build go to Joe, not NetKnights
+  static const _defaultCrashRecipient = 'jwussler@gmail.com';
   static const _defaultCrashSubjectPrefix =
       '($prefixVersionVariable) privacyIDEA Authenticator >>>';
-  static const _defaultFeedbackRecipient = 'app-crash@netknights.it';
+  static const _defaultFeedbackRecipient = 'jwussler@gmail.com';
   static const _defaultFeedbackSubjectPrefix =
       '($prefixVersionVariable) privacyIDEA Authenticator >>> Feedback';
 

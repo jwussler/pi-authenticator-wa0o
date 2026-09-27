@@ -61,6 +61,11 @@ jobs:
           codesign -dvvv "$APP" 2>&1 | grep -E 'Authority=|TeamIdentifier='
           codesign -d --entitlements :- "$APP" 2>/dev/null | grep -A1 aps-environment | tee /dev/stderr | grep -q production
           security cms -D -i "$APP/embedded.mobileprovision" | grep -A1 '<key>Name</key>' | tail -1
+          # 09/27/2026: build 409004 shipped with the QR scanner's FFI entry point stripped (flutter_zxing is a static SwiftPM
+          # lib; 'readBarcode' is found by dlsym at runtime) -> every scan failed. Refuse a bundle where no binary exports it.
+          found=""; for b in "$APP/$(basename "$APP" .app)" "$APP"/Frameworks/*.framework/*; do
+            [ -f "$b" ] && nm -gU "$b" 2>/dev/null | grep -q ' _readBarcode$' && found="$b"; done
+          echo "readBarcode exported by: ${found:-NOTHING}"; [ -n "$found" ]
       - uses: actions/upload-artifact@v4
         with:
           name: wa0o-piauth-ipa
