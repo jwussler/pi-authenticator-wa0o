@@ -32,6 +32,20 @@ import 'globals.dart';
 import 'identifiers.dart';
 import 'logger.dart';
 
+/// WA0O (09/27/2026): no Firebase project - privacyIDEA sends straight to Apple (APNs key LK7XTPA949, server add-on
+/// wa0o_apns.py). On iOS the "firebase token" handed to privacyIDEA is the raw APNs device token (hex). The plugin
+/// only registers with Apple once auto-init is on (Info.plist ships it off), then exposes the token via getAPNSToken().
+Future<String?> _getApnsToken() async {
+  await FirebaseMessaging.instance.requestPermission(alert: true, sound: true, badge: true);
+  await FirebaseMessaging.instance.setAutoInitEnabled(true);
+  for (var i = 0; i < 20; i++) {
+    final token = await FirebaseMessaging.instance.getAPNSToken();
+    if (token != null && token.isNotEmpty) return token;
+    await Future.delayed(const Duration(milliseconds: 500));
+  }
+  return null;
+}
+
 class FirebaseUtils {
   static FirebaseUtils? _instance;
   static bool? _isMessagingAvailable;
@@ -225,20 +239,6 @@ class FirebaseUtils {
 
       initializedHandler = true;
     });
-  }
-
-  /// WA0O (09/27/2026): no Firebase project - privacyIDEA sends straight to Apple (APNs key LK7XTPA949, server add-on
-  /// wa0o_apns.py). On iOS the "firebase token" handed to privacyIDEA is the raw APNs device token (hex). The plugin
-  /// only registers with Apple once auto-init is on (Info.plist ships it off), then exposes the token via getAPNSToken().
-  Future<String?> _getApnsToken() async {
-    await FirebaseMessaging.instance.requestPermission(alert: true, sound: true, badge: true);
-    await FirebaseMessaging.instance.setAutoInitEnabled(true);
-    for (var i = 0; i < 20; i++) {
-      final token = await FirebaseMessaging.instance.getAPNSToken();
-      if (token != null && token.isNotEmpty) return token;
-      await Future.delayed(const Duration(milliseconds: 500));
-    }
-    return null;
   }
 
   Future<String?> getFBToken() async {
