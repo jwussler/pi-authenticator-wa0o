@@ -19,12 +19,12 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML
 
 
 class Chrome:
-    def __init__(self, port=9333, profile=None):
+    def __init__(self, port=9333, profile=None, headless=True):
         self.port = port
         self.profile = profile or os.path.join(RUNDIR, "chrome")
         os.makedirs(self.profile, mode=0o700, exist_ok=True)
         self.proc = subprocess.Popen(
-            ["google-chrome", "--headless=new", f"--remote-debugging-port={port}", f"--user-data-dir={self.profile}",
+            ["google-chrome"] + (["--headless=new"] if headless else []) + [f"--remote-debugging-port={port}", f"--user-data-dir={self.profile}",
              "--no-first-run", "--no-default-browser-check", "--window-size=1366,900", f"--user-agent={UA}",
              "--disable-blink-features=AutomationControlled", "about:blank"],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

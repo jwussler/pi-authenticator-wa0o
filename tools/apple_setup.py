@@ -33,7 +33,19 @@ def ctx(c):
     return None
 
 def signin(c):
-    apple_id, pw = open(os.path.join(RUNDIR, "apple.txt")).read().splitlines()[:2]
+    cred = os.path.join(RUNDIR, "apple.txt")
+    if not os.path.exists(cred):               # Joe re-drops T:\apple.txt -> move to tmpfs 0600, shred the share copy
+        log("waiting for T:\\apple.txt")
+        src = "/mnt/fs01-transfer/apple.txt"
+        for _ in range(1800):
+            if os.path.exists(src) and os.path.getsize(src) > 5: break
+            time.sleep(1)
+        else:
+            log("no apple.txt within 30 min"); return False
+        time.sleep(2)
+        subprocess.run(["install", "-m", "600", src, cred], check=True); subprocess.run(["shred", "-u", src])
+        log("apple.txt moved to tmpfs, T: copy shredded")
+    apple_id, pw = open(cred).read().splitlines()[:2]
     c.goto("https://appstoreconnect.apple.com/login", wait=10)
     x = ctx(c)
     if not x: log("no idmsa frame"); c.shot(f"{SHOTS}/apple-0-noframe.png"); return False
@@ -92,7 +104,8 @@ def two_factor(c):
 
 if __name__ == "__main__":
     open(LOG, "w").close()
-    c = Chrome()
+    headed = os.environ.get("HEADED") == "1"   # 09/27: headless sign-in stalls after the password -> try a real window
+    c = Chrome(headless=not headed)
     try:
         if signin(c) and two_factor(c):
             log("SIGNED IN - keeping the browser up for the next steps (port 9333)")
